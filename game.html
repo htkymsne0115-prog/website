@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>テトリス - ゲーム</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            color: white;
+        }
+        .container {
+            text-align: center;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 30px;
+            border-radius: 10px;
+        }
+        h1 {
+            margin-top: 0;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        .game-info {
+            display: flex;
+            gap: 30px;
+            justify-content: center;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        .info-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .info-item h3 {
+            margin: 0 0 10px 0;
+        }
+        .info-item p {
+            margin: 5px 0;
+            font-size: 1.5em;
+        }
+        canvas {
+            border: 3px solid white;
+            background: #1a1a1a;
+            margin: 20px 0;
+            display: block;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #ff5252;
+        }
+        button:disabled {
+            background: #999;
+            cursor: not-allowed;
+        }
+        .instructions {
+            text-align: left;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+        .back-link {
+            margin-top: 20px;
+        }
+        .back-link a {
+            color: #ff6b6b;
+            text-decoration: none;
+            font-size: 1.1em;
+            transition: color 0.3s;
+        }
+        .back-link a:hover {
+            color: #ff5252;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔲 テトリス</h1>
+        
+        <div class="game-info">
+            <div class="info-item">
+                <h3>スコア</h3>
+                <p id="score">0</p>
+            </div>
+            <div class="info-item">
+                <h3>レベル</h3>
+                <p id="level">1</p>
+            </div>
+            <div class="info-item">
+                <h3>消した行</h3>
+                <p id="lines">0</p>
+            </div>
+        </div>
+
+        <canvas id="gameCanvas" width="200" height="400"></canvas>
+
+        <div class="controls">
+            <button id="startBtn" onclick="startGame()">ゲーム開始</button>
+            <button id="pauseBtn" onclick="togglePause()" disabled>一時停止</button>
+            <button id="resetBtn" onclick="resetGame()">リセット</button>
+        </div>
+
+        <div class="instructions">
+            <strong>操作方法:</strong><br>
+            ⬅️ / ➡️ キー: ブロックを左右に移動<br>
+            ⬆️ キー: ブロックを回転<br>
+            ⬇️ キー: ブロックを高速落下<br>
+            スペースキー: ブロックを素早く落とす<br>
+        </div>
+
+        <div class="back-link">
+            <a href="index.html">← ホームに戻る</a>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const GRID_WIDTH = 10;
+        const GRID_HEIGHT = 20;
+        const BLOCK_SIZE = canvas.width / GRID_WIDTH;
+
+        let grid = Array(GRID_HEIGHT).fill(null).map(() => Array(GRID_WIDTH).fill(0));
+        let currentPiece = null;
+        let gameRunning = false;
+        let gamePaused = false;
+        let score = 0;
+        let lines = 0;
+        let level = 1;
+        let gameSpeed = 1000;
+        let gameLoopId = null;
+
+        const TETRIS_PIECES = [
+            { shape: [[1, 1], [1, 1]], color: '#FFD700' },
+            { shape: [[1, 1, 1, 1]], color: '#00BFFF' },
+            { shape: [[1, 0], [1, 0], [1, 1]], color: '#FF6347' },
+            { shape: [[0, 1], [0, 1], [1, 1]], color: '#FF1493' },
+            { shape: [[0, 1, 1], [1, 1, 0]], color: '#00FF00' },
+            { shape: [[1, 1, 0], [0, 1, 1]], color: '#FF69B4' },
+            { shape: [[0, 1, 0], [1, 1, 1]], color: '#9370DB' },
+        ];
+
+        function randomPiece() {
+            const piece = JSON.parse(JSON.stringify(TETRIS_PIECES[Math.floor(Math.random() * TETRIS_PIECES.length)]));
+            return {
+                shape: piece.shape,
+                color: piece.color,
+                x: Math.floor(GRID_WIDTH / 2) - 1,
+                y: 0
+            };
+        }
+
+        function canMove(piece, dx, dy) {
+            for (let y = 0; y < piece.shape.length; y++) {
+                for (let x = 0; x < piece.shape[y].length; x++) {
+                    if (piece.shape[y][x]) {
+                        const newX = piece.x + x + dx;
+                        const newY = piece.y + y + dy;
+                        if (newX < 0 || newX >= GRID_WIDTH || newY >= GRID_HEIGHT) return false;
+                        if (newY >= 0 && grid[newY][newX]) return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        function rotatePiece(piece) {
+            const rotated = JSON.parse(JSON.stringify(piece));
+            rotated.shape = rotated.shape[0].map((_, i) =>
+                rotated.shape.map(row => row[i]).reverse()
+            );
+            if (canMove(rotated, 0, 0)) {
+                return rotated;
+            }
+            return piece;
+        }
+
+        function lockPiece(piece) {
+            for (let y = 0; y < piece.shape.length; y++) {
+                for (let x = 0; x < piece.shape[y].length; x++) {
+                    if (piece.shape[y][x]) {
+                        const gridY = piece.y + y;
+                        const gridX = piece.x + x;
+                        if (gridY >= 0) {
+                            grid[gridY][gridX] = piece.color;
+                        }
+                    }
+                }
+            }
+            clearLines();
+        }
+
+        function clearLines() {
+            let linesCleared = 0;
+            for (let y = GRID_HEIGHT - 1; y >= 0; y--) {
+                if (grid[y].every(cell => cell)) {
+                    grid.splice(y, 1);
+                    grid.unshift(Array(GRID_WIDTH).fill(0));
+                    linesCleared++;
+                }
+            }
+            if (linesCleared > 0) {
+                lines += linesCleared;
+                score += linesCleared * 100 * level;
+                level = Math.floor(lines / 5) + 1;
+                gameSpeed = Math.max(200, 1000 - (level - 1) * 50);
+                updateInfo();
+            }
+        }
+
+        function updateInfo() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('level').textContent = level;
+            document.getElementById('lines').textContent = lines;
+        }
+
+        function draw() {
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // グリッドを描画
+            for (let y = 0; y < GRID_HEIGHT; y++) {
+                for (let x = 0; x < GRID_WIDTH; x++) {
+                    if (grid[y][x]) {
+                        ctx.fillStyle = grid[y][x];
+                        ctx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE - 1, BLOCK_SIZE - 1);
+                    }
+                    ctx.strokeStyle = '#333';
+                    ctx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                }
+            }
+
+            // 現在のピースを描画
+            if (currentPiece) {
+                ctx.fillStyle = currentPiece.color;
+                for (let y = 0; y < currentPiece.shape.length; y++) {
+                    for (let x = 0; x < currentPiece.shape[y].length; x++) {
+                        if (currentPiece.shape[y][x]) {
+                            ctx.fillRect(
+                                (currentPiece.x + x) * BLOCK_SIZE,
+                                (currentPiece.y + y) * BLOCK_SIZE,
+                                BLOCK_SIZE - 1,
+                                BLOCK_SIZE - 1
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        function gameLoop() {
+            if (gamePaused) return;
+
+            if (canMove(currentPiece, 0, 1)) {
+                currentPiece.y++;
+            } else {
+                lockPiece(currentPiece);
+                currentPiece = randomPiece();
+                if (!canMove(currentPiece, 0, 0)) {
+                    gameRunning = false;
+                    gameLoopId && clearInterval(gameLoopId);
+                    alert(`ゲームオーバー!\nスコア: ${score}`);
+                    document.getElementById('startBtn').disabled = false;
+                    document.getElementById('pauseBtn').disabled = true;
+                }
+            }
+            draw();
+        }
+
+        function startGame() {
+            if (!gameRunning) {
+                gameRunning = true;
+                gamePaused = false;
+                grid = Array(GRID_HEIGHT).fill(null).map(() => Array(GRID_WIDTH).fill(0));
+                score = 0;
+                lines = 0;
+                level = 1;
+                gameSpeed = 1000;
+                currentPiece = randomPiece();
+                updateInfo();
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('pauseBtn').disabled = false;
+                gameLoopId = setInterval(gameLoop, gameSpeed);
+            }
+        }
+
+        function togglePause() {
+            if (gameRunning) {
+                gamePaused = !gamePaused;
+                document.getElementById('pauseBtn').textContent = gamePaused ? '再開' : '一時停止';
+            }
+        }
+
+        function resetGame() {
+            gameRunning = false;
+            gamePaused = false;
+            gameLoopId && clearInterval(gameLoopId);
+            grid = Array(GRID_HEIGHT).fill(null).map(() => Array(GRID_WIDTH).fill(0));
+            score = 0;
+            lines = 0;
+            level = 1;
+            gameSpeed = 1000;
+            currentPiece = null;
+            updateInfo();
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('pauseBtn').disabled = true;
+            document.getElementById('pauseBtn').textContent = '一時停止';
+            draw();
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (!gameRunning || gamePaused) return;
+            
+            switch(e.key) {
+                case 'ArrowLeft':
+                    if (canMove(currentPiece, -1, 0)) currentPiece.x--;
+                    break;
+                case 'ArrowRight':
+                    if (canMove(currentPiece, 1, 0)) currentPiece.x++;
+                    break;
+                case 'ArrowUp':
+                    currentPiece = rotatePiece(currentPiece);
+                    break;
+                case 'ArrowDown':
+                    if (canMove(currentPiece, 0, 1)) currentPiece.y++;
+                    break;
+                case ' ':
+                    while (canMove(currentPiece, 0, 1)) currentPiece.y++;
+                    break;
+            }
+            e.preventDefault();
+            draw();
+        });
+
+        resetGame();
+    </script>
+</body>
+</html>
